@@ -1,6 +1,3 @@
-import type { DecodedIdToken } from "firebase-admin/auth";
-
-import { getFirebaseAdminAuth } from "../config/firebaseAdmin";
 import User, { type UserDocument } from "../models/User";
 import { HttpError } from "../lib/httpError";
 
@@ -10,19 +7,31 @@ export interface AuthUser {
   email: string;
   phone: string | null;
   photoURL: string | null;
+  listings: string[];
+  bookings: string[];
+  lastLoginAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
   authMethod: "google";
   profileComplete: boolean;
 }
 
-const PHONE_PATTERN = /^[+]?[\d\s()-]{10,18}$/;
+export interface GoogleUserProfileInput {
+  uid: string;
+  name?: string | null;
+  email: string;
+  photoURL?: string | null;
+}
 
-const getDisplayName = (token: DecodedIdToken) => {
-  if (token.name?.trim()) {
-    return token.name.trim();
+const PHONE_PATTERN = /^\+91\d{10}$/;
+
+const getDisplayName = (profile: GoogleUserProfileInput) => {
+  if (profile.name?.trim()) {
+    return profile.name.trim();
   }
 
-  if (token.email) {
-    return token.email.split("@")[0];
+  if (profile.email) {
+    return profile.email.split("@")[0];
   }
 
   return "Google User";
@@ -34,38 +43,31 @@ export const serializeUser = (user: UserDocument): AuthUser => ({
   email: user.email,
   phone: user.phone,
   photoURL: user.photoURL,
+  listings: user.listings || [],
+  bookings: user.bookings || [],
+  lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null,
+  createdAt: user.createdAt ? user.createdAt.toISOString() : null,
+  updatedAt: user.updatedAt ? user.updatedAt.toISOString() : null,
   authMethod: "google",
   profileComplete: Boolean(user.phone),
 });
 
-export const verifyFirebaseIdToken = async (idToken: string) => {
-  if (!idToken?.trim()) {
-    throw new HttpError(401, "Firebase ID token is required.");
+export const syncGoogleUser = async (profile: GoogleUserProfileInput) => {
+  if (!profile.uid?.trim()) {
+    throw new HttpError(400, "Google user uid is required.");
   }
 
-  try {
-    return await getFirebaseAdminAuth().verifyIdToken(idToken);
-  } catch {
-    throw new HttpError(401, "Invalid or expired Firebase token.");
-  }
-};
-
-export const syncGoogleUser = async (decodedToken: DecodedIdToken) => {
-  if (!decodedToken.uid) {
-    throw new HttpError(400, "Token payload is missing a Firebase uid.");
-  }
-
-  if (!decodedToken.email) {
+  if (!profile.email?.trim()) {
     throw new HttpError(400, "Google account email is required.");
   }
 
   const user = await User.findOneAndUpdate(
-    { firebaseUid: decodedToken.uid },
+    { firebaseUid: profile.uid.trim() },
     {
       $set: {
-        name: getDisplayName(decodedToken),
-        email: decodedToken.email.toLowerCase(),
-        photoURL: decodedToken.picture ?? null,
+        name: getDisplayName(profile),
+        email: profile.email.trim().toLowerCase(),
+        photoURL: profile.photoURL?.trim() || null,
         provider: "google",
         lastLoginAt: new Date(),
       },
@@ -87,15 +89,39 @@ export const syncGoogleUser = async (decodedToken: DecodedIdToken) => {
   return serializeUser(user);
 };
 
+export const getUserProfileByUid = async (firebaseUid: string) => {
+  if (!firebaseUid?.trim()) {
+    throw new HttpError(400, "uid is required.");
+  }
+
+  const user = await User.findOne({ firebaseUid: firebaseUid.trim() });
+
+  if (!user) {
+    throw new HttpError(404, "Google user was not found.");
+  }
+
+  return serializeUser(user);
+};
+
 export const updateUserPhone = async (firebaseUid: string, phone: string) => {
-  const normalizedPhone = phone.trim();
+  if (!firebaseUid?.trim()) {
+    throw new HttpError(400, "Google user uid is required.");
+  }
+
+  const digitsOnly = phone.replace(/\D/g, "");
+  const normalizedPhone =
+    digitsOnly.length === 10
+      ? `+91${digitsOnly}`
+      : digitsOnly.length === 12 && digitsOnly.startsWith("91")
+        ? `+${digitsOnly}`
+        : phone.trim();
 
   if (!PHONE_PATTERN.test(normalizedPhone)) {
-    throw new HttpError(400, "Please enter a valid phone number.");
+    throw new HttpError(400, "Please enter a valid 10-digit Indian mobile number.");
   }
 
   const user = await User.findOneAndUpdate(
-    { firebaseUid },
+    { firebaseUid: firebaseUid.trim() },
     {
       $set: {
         phone: normalizedPhone,
@@ -107,7 +133,7 @@ export const updateUserPhone = async (firebaseUid: string, phone: string) => {
   );
 
   if (!user) {
-    throw new HttpError(404, "Authenticated user was not found.");
+    throw new HttpError(404, "Google user was not found.");
   }
 
   return serializeUser(user);

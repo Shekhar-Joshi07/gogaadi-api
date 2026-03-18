@@ -1,7 +1,6 @@
 import dotenv from "dotenv";
 
 import app from "./app";
-import { initializeFirebaseAdmin } from "./config/firebaseAdmin";
 import { connectToMongo } from "./config/mongo";
 
 dotenv.config();
@@ -9,7 +8,6 @@ dotenv.config();
 const port = Number(process.env.PORT || 4000);
 
 const startServer = async () => {
-  initializeFirebaseAdmin();
   await connectToMongo();
 
   app.listen(port, () => {

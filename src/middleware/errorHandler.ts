@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { MulterError } from "multer";
 
 import { HttpError } from "../lib/httpError";
 
@@ -10,6 +11,11 @@ export const errorHandler = (
 ) => {
   if (error instanceof HttpError) {
     res.status(error.statusCode).json({ message: error.message });
+    return;
+  }
+
+  if (error instanceof MulterError) {
+    res.status(400).json({ message: error.message });
     return;
   }
 

@@ -1,10 +1,10 @@
 import { Router } from "express";
 
-import { updateMyPhone } from "../controllers/userController";
-import { authenticateFirebase } from "../middleware/authenticateFirebase";
+import { getUserProfile, updateMyPhone } from "../controllers/userController";
 
 const userRoutes = Router();
 
-userRoutes.patch("/me/phone", authenticateFirebase, updateMyPhone);
+userRoutes.get("/:uid", getUserProfile);
+userRoutes.patch("/phone", updateMyPhone);
 
 export default userRoutes;

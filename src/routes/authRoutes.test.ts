@@ -1,121 +1,119 @@
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { HttpError } from "../lib/httpError";
-
 const {
-  verifyFirebaseIdTokenMock,
   syncGoogleUserMock,
   updateUserPhoneMock,
+  getUserProfileByUidMock,
 } = vi.hoisted(() => ({
-  verifyFirebaseIdTokenMock: vi.fn(),
   syncGoogleUserMock: vi.fn(),
   updateUserPhoneMock: vi.fn(),
+  getUserProfileByUidMock: vi.fn(),
 }));
 
 vi.mock("../services/authService", () => ({
-  verifyFirebaseIdToken: verifyFirebaseIdTokenMock,
   syncGoogleUser: syncGoogleUserMock,
   updateUserPhone: updateUserPhoneMock,
+  getUserProfileByUid: getUserProfileByUidMock,
 }));
 
 import app from "../app";
 
+const sampleSerializedUser = {
+  uid: "firebase-1",
+  name: "Go Gaadi",
+  email: "user@example.com",
+  phone: null,
+  photoURL: null,
+  listings: ["listing-1"],
+  bookings: ["booking-1"],
+  lastLoginAt: "2026-03-18T00:00:00.000Z",
+  createdAt: "2026-03-18T00:00:00.000Z",
+  updatedAt: "2026-03-18T00:00:00.000Z",
+  authMethod: "google",
+  profileComplete: false,
+};
+
 describe("auth routes", () => {
   beforeEach(() => {
-    verifyFirebaseIdTokenMock.mockReset();
     syncGoogleUserMock.mockReset();
     updateUserPhoneMock.mockReset();
+    getUserProfileByUidMock.mockReset();
   });
 
-  it("returns 401 for an invalid Google auth token", async () => {
-    verifyFirebaseIdTokenMock.mockRejectedValue(new HttpError(401, "Invalid or expired Firebase token."));
-
+  it("requires a Google user payload for sync", async () => {
     const response = await request(app)
       .post("/api/auth/google")
-      .send({ idToken: "bad-token" });
+      .send({});
 
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(400);
     expect(response.body).toEqual({
-      message: "Invalid or expired Firebase token.",
+      message: "user is required.",
     });
   });
 
   it("creates or updates a Google user and reports phone completion state", async () => {
-    verifyFirebaseIdTokenMock.mockResolvedValue({
-      uid: "firebase-1",
-      email: "user@example.com",
-    });
-    syncGoogleUserMock.mockResolvedValue({
-      uid: "firebase-1",
-      name: "Go Gaadi",
-      email: "user@example.com",
-      phone: null,
-      photoURL: null,
-      authMethod: "google",
-      profileComplete: false,
-    });
+    syncGoogleUserMock.mockResolvedValue(sampleSerializedUser);
 
     const response = await request(app)
       .post("/api/auth/google")
-      .send({ idToken: "valid-token" });
+      .send({
+        user: {
+          uid: "firebase-1",
+          name: "Go Gaadi",
+          email: "user@example.com",
+          photoURL: null,
+        },
+      });
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
-      user: {
-        uid: "firebase-1",
-        name: "Go Gaadi",
-        email: "user@example.com",
-        phone: null,
-        photoURL: null,
-        authMethod: "google",
-        profileComplete: false,
-      },
+      user: sampleSerializedUser,
       needsPhone: true,
     });
   });
 
-  it("requires a bearer token for phone updates", async () => {
-    const response = await request(app)
-      .patch("/api/users/me/phone")
-      .send({ phone: "+919999999999" });
+  it("returns the saved user profile by uid", async () => {
+    getUserProfileByUidMock.mockResolvedValue(sampleSerializedUser);
 
-    expect(response.status).toBe(401);
+    const response = await request(app)
+      .get("/api/users/firebase-1");
+
+    expect(response.status).toBe(200);
+    expect(getUserProfileByUidMock).toHaveBeenCalledWith("firebase-1");
     expect(response.body).toEqual({
-      message: "Missing Firebase bearer token.",
+      user: sampleSerializedUser,
     });
   });
 
-  it("updates the authenticated user's phone number", async () => {
-    verifyFirebaseIdTokenMock.mockResolvedValue({
-      uid: "firebase-1",
-      email: "user@example.com",
+  it("requires a uid for phone updates", async () => {
+    const response = await request(app)
+      .patch("/api/users/phone")
+      .send({ phone: "+919999999999" });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      message: "uid is required.",
     });
+  });
+
+  it("updates the Google user's phone number", async () => {
     updateUserPhoneMock.mockResolvedValue({
-      uid: "firebase-1",
-      name: "Go Gaadi",
-      email: "user@example.com",
+      ...sampleSerializedUser,
       phone: "+919999999999",
-      photoURL: null,
-      authMethod: "google",
       profileComplete: true,
     });
 
     const response = await request(app)
-      .patch("/api/users/me/phone")
-      .set("Authorization", "Bearer valid-token")
-      .send({ phone: "+919999999999" });
+      .patch("/api/users/phone")
+      .send({ uid: "firebase-1", phone: "+919999999999" });
 
     expect(response.status).toBe(200);
     expect(updateUserPhoneMock).toHaveBeenCalledWith("firebase-1", "+919999999999");
     expect(response.body).toEqual({
       user: {
-        uid: "firebase-1",
-        name: "Go Gaadi",
-        email: "user@example.com",
+        ...sampleSerializedUser,
         phone: "+919999999999",
-        photoURL: null,
-        authMethod: "google",
         profileComplete: true,
       },
       needsPhone: false,

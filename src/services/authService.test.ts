@@ -1,66 +1,58 @@
-import type { DecodedIdToken } from "firebase-admin/auth";
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { verifyIdTokenMock, findOneAndUpdateMock } = vi.hoisted(() => ({
-  verifyIdTokenMock: vi.fn(),
+const { findOneAndUpdateMock, findOneMock } = vi.hoisted(() => ({
   findOneAndUpdateMock: vi.fn(),
-}));
-
-vi.mock("../config/firebaseAdmin", () => ({
-  getFirebaseAdminAuth: () => ({
-    verifyIdToken: verifyIdTokenMock,
-  }),
+  findOneMock: vi.fn(),
 }));
 
 vi.mock("../models/User", () => ({
   default: {
     findOneAndUpdate: findOneAndUpdateMock,
+    findOne: findOneMock,
   },
 }));
 
 import {
+  getUserProfileByUid,
   serializeUser,
   syncGoogleUser,
   updateUserPhone,
-  verifyFirebaseIdToken,
 } from "./authService";
 import { HttpError } from "../lib/httpError";
 
+const sampleUser = {
+  firebaseUid: "firebase-1",
+  name: "Go Gaadi",
+  email: "user@example.com",
+  phone: null,
+  photoURL: "https://image.example/avatar.png",
+  listings: ["listing-1"],
+  bookings: ["booking-1"],
+  lastLoginAt: new Date("2026-03-18T00:00:00.000Z"),
+  createdAt: new Date("2026-03-18T00:00:00.000Z"),
+  updatedAt: new Date("2026-03-18T00:00:00.000Z"),
+};
+
 describe("authService", () => {
   beforeEach(() => {
-    verifyIdTokenMock.mockReset();
     findOneAndUpdateMock.mockReset();
-  });
-
-  it("verifies a Firebase id token", async () => {
-    const decodedToken = { uid: "firebase-1", email: "user@example.com" } as unknown as DecodedIdToken;
-    verifyIdTokenMock.mockResolvedValue(decodedToken);
-
-    await expect(verifyFirebaseIdToken("token-123")).resolves.toEqual(decodedToken);
-  });
-
-  it("rejects invalid Firebase tokens", async () => {
-    verifyIdTokenMock.mockRejectedValue(new Error("invalid token"));
-
-    await expect(verifyFirebaseIdToken("token-123")).rejects.toBeInstanceOf(HttpError);
+    findOneMock.mockReset();
   });
 
   it("upserts a Google user without duplicating the record", async () => {
     findOneAndUpdateMock.mockResolvedValue({
-      firebaseUid: "firebase-1",
-      name: "Go Gaadi",
-      email: "user@example.com",
+      ...sampleUser,
       phone: null,
-      photoURL: "https://image.example/avatar.png",
+      listings: [],
+      bookings: [],
     });
 
     const result = await syncGoogleUser({
       uid: "firebase-1",
       name: "Go Gaadi",
       email: "user@example.com",
-      picture: "https://image.example/avatar.png",
-    } as unknown as DecodedIdToken);
+      photoURL: "https://image.example/avatar.png",
+    });
 
     expect(findOneAndUpdateMock).toHaveBeenCalledWith(
       { firebaseUid: "firebase-1" },
@@ -82,6 +74,38 @@ describe("authService", () => {
       email: "user@example.com",
       phone: null,
       photoURL: "https://image.example/avatar.png",
+      listings: [],
+      bookings: [],
+      lastLoginAt: "2026-03-18T00:00:00.000Z",
+      createdAt: "2026-03-18T00:00:00.000Z",
+      updatedAt: "2026-03-18T00:00:00.000Z",
+      authMethod: "google",
+      profileComplete: false,
+    });
+  });
+
+  it("rejects missing Google profile fields", async () => {
+    await expect(syncGoogleUser({ uid: "", email: "user@example.com" })).rejects.toBeInstanceOf(HttpError);
+    await expect(syncGoogleUser({ uid: "firebase-1", email: "" })).rejects.toBeInstanceOf(HttpError);
+  });
+
+  it("returns the saved user profile by uid", async () => {
+    findOneMock.mockResolvedValue(sampleUser);
+
+    const result = await getUserProfileByUid("firebase-1");
+
+    expect(findOneMock).toHaveBeenCalledWith({ firebaseUid: "firebase-1" });
+    expect(result).toEqual({
+      uid: "firebase-1",
+      name: "Go Gaadi",
+      email: "user@example.com",
+      phone: null,
+      photoURL: "https://image.example/avatar.png",
+      listings: ["listing-1"],
+      bookings: ["booking-1"],
+      lastLoginAt: "2026-03-18T00:00:00.000Z",
+      createdAt: "2026-03-18T00:00:00.000Z",
+      updatedAt: "2026-03-18T00:00:00.000Z",
       authMethod: "google",
       profileComplete: false,
     });
@@ -89,11 +113,8 @@ describe("authService", () => {
 
   it("updates the phone number only for the matched user", async () => {
     findOneAndUpdateMock.mockResolvedValue({
-      firebaseUid: "firebase-1",
-      name: "Go Gaadi",
-      email: "user@example.com",
+      ...sampleUser,
       phone: "+919999999999",
-      photoURL: null,
     });
 
     const result = await updateUserPhone("firebase-1", "+919999999999");
@@ -106,21 +127,26 @@ describe("authService", () => {
     expect(result.profileComplete).toBe(true);
   });
 
+  it("rejects a missing uid when updating the phone number", async () => {
+    await expect(updateUserPhone("", "+919999999999")).rejects.toBeInstanceOf(HttpError);
+  });
+
+  it("rejects invalid Indian mobile numbers", async () => {
+    await expect(updateUserPhone("firebase-1", "12345")).rejects.toBeInstanceOf(HttpError);
+  });
+
   it("serializes a Mongo user to the frontend auth shape", () => {
-    expect(
-      serializeUser({
-        firebaseUid: "firebase-1",
-        name: "Go Gaadi",
-        email: "user@example.com",
-        phone: null,
-        photoURL: null,
-      } as never),
-    ).toEqual({
+    expect(serializeUser(sampleUser as never)).toEqual({
       uid: "firebase-1",
       name: "Go Gaadi",
       email: "user@example.com",
       phone: null,
-      photoURL: null,
+      photoURL: "https://image.example/avatar.png",
+      listings: ["listing-1"],
+      bookings: ["booking-1"],
+      lastLoginAt: "2026-03-18T00:00:00.000Z",
+      createdAt: "2026-03-18T00:00:00.000Z",
+      updatedAt: "2026-03-18T00:00:00.000Z",
       authMethod: "google",
       profileComplete: false,
     });

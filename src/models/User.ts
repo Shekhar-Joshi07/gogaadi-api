@@ -6,6 +6,8 @@ export interface UserDocument {
   email: string;
   phone: string | null;
   photoURL: string | null;
+  listings: string[];
+  bookings: string[];
   provider: "google";
   lastLoginAt: Date;
   createdAt: Date;
@@ -41,6 +43,14 @@ const userSchema = new Schema<UserDocument>(
       type: String,
       default: null,
       trim: true,
+    },
+    listings: {
+      type: [String],
+      default: [],
+    },
+    bookings: {
+      type: [String],
+      default: [],
     },
     provider: {
       type: String,

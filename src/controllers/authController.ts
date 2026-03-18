@@ -1,20 +1,19 @@
 import type { Request, Response } from "express";
 
-import { syncGoogleUser, verifyFirebaseIdToken } from "../services/authService";
+import { syncGoogleUser, type GoogleUserProfileInput } from "../services/authService";
 import { HttpError } from "../lib/httpError";
 
 export const googleAuth = async (req: Request, res: Response) => {
-  const { idToken } = req.body as { idToken?: string };
+  const { user } = req.body as { user?: GoogleUserProfileInput };
 
-  if (!idToken) {
-    throw new HttpError(400, "idToken is required.");
+  if (!user) {
+    throw new HttpError(400, "user is required.");
   }
 
-  const decodedToken = await verifyFirebaseIdToken(idToken);
-  const user = await syncGoogleUser(decodedToken);
+  const syncedUser = await syncGoogleUser(user);
 
   res.status(200).json({
-    user,
-    needsPhone: !user.phone,
+    user: syncedUser,
+    needsPhone: !syncedUser.phone,
   });
 };
