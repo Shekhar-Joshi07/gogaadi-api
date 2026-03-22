@@ -4,12 +4,14 @@ const {
   listingCreateMock,
   listingFindMock,
   listingFindByIdMock,
+  listingAggregateMock,
   userFindOneMock,
   userFindOneAndUpdateMock,
 } = vi.hoisted(() => ({
   listingCreateMock: vi.fn(),
   listingFindMock: vi.fn(),
   listingFindByIdMock: vi.fn(),
+  listingAggregateMock: vi.fn(),
   userFindOneMock: vi.fn(),
   userFindOneAndUpdateMock: vi.fn(),
 }));
@@ -19,6 +21,7 @@ vi.mock("../models/Listing", () => ({
     create: listingCreateMock,
     find: listingFindMock,
     findById: listingFindByIdMock,
+    aggregate: listingAggregateMock,
   },
 }));
 
@@ -34,6 +37,7 @@ import {
   getAllListings,
   getListingById,
   getListingsByOwner,
+  getNearbyListings,
   serializeListing,
 } from "./listingService";
 import { HttpError } from "../lib/httpError";
@@ -48,6 +52,10 @@ const sampleListing = {
   city: "Jaipur",
   description: "Ready for rally convoys.",
   pricePerDay: 4500,
+  location: {
+    type: "Point",
+    coordinates: [75.7873, 26.9124],
+  },
   rallySuitability: [],
   imageUrls: ["/public/uploads/listings/thar.jpg"],
   status: "pending" as const,
@@ -60,6 +68,7 @@ describe("listingService", () => {
     listingCreateMock.mockReset();
     listingFindMock.mockReset();
     listingFindByIdMock.mockReset();
+    listingAggregateMock.mockReset();
     userFindOneMock.mockReset();
     userFindOneAndUpdateMock.mockReset();
   });
@@ -76,6 +85,8 @@ describe("listingService", () => {
         city: "Jaipur",
         description: "Ready for rally convoys.",
         pricePerDay: "4500",
+        latitude: "26.9124",
+        longitude: "75.7873",
       },
       [{ filename: "thar.jpg" }],
     );
@@ -85,6 +96,10 @@ describe("listingService", () => {
         ownerUid: "firebase-1",
         vehicleName: "Mahindra Thar",
         imageUrls: ["/public/uploads/listings/thar.jpg"],
+        location: {
+          type: "Point",
+          coordinates: [75.7873, 26.9124],
+        },
       }),
     );
     expect(userFindOneAndUpdateMock).toHaveBeenCalledWith(
@@ -108,6 +123,8 @@ describe("listingService", () => {
           city: "Jaipur",
           description: "Ready for rally convoys.",
           pricePerDay: "4500",
+          latitude: "26.9124",
+          longitude: "75.7873",
         },
         [],
       ),
@@ -124,6 +141,8 @@ describe("listingService", () => {
           city: "Jaipur",
           description: "Ready for rally convoys.",
           pricePerDay: "4500",
+          latitude: "26.9124",
+          longitude: "75.7873",
         },
         [
           { filename: "1.jpg" },
@@ -164,6 +183,8 @@ describe("listingService", () => {
       city: "Jaipur",
       description: "Ready for rally convoys.",
       pricePerDay: 4500,
+      latitude: 26.9124,
+      longitude: 75.7873,
       rallySuitability: [],
       imageUrls: ["/public/uploads/listings/thar.jpg"],
       status: "pending",
@@ -180,5 +201,34 @@ describe("listingService", () => {
 
     expect(listingFindMock).toHaveBeenCalledWith();
     expect(result).toHaveLength(1);
+  });
+
+  it("returns nearby listings sorted by distance", async () => {
+    listingAggregateMock.mockResolvedValue([
+      {
+        _id: "listing-1",
+        ownerUid: "firebase-1",
+        vehicleName: "Mahindra Thar",
+        brand: "Mahindra",
+        city: "Jaipur",
+        description: "Ready for rally convoys.",
+        pricePerDay: 4500,
+        location: {
+          type: "Point",
+          coordinates: [75.7873, 26.9124],
+        },
+        rallySuitability: [],
+        imageUrls: ["/public/uploads/listings/thar.jpg"],
+        status: "pending",
+        distanceMeters: 4200,
+        createdAt: new Date("2026-03-18T00:00:00.000Z"),
+        updatedAt: new Date("2026-03-18T00:00:00.000Z"),
+      },
+    ]);
+
+    const result = await getNearbyListings("26.9124", "75.7873", "20");
+
+    expect(listingAggregateMock).toHaveBeenCalled();
+    expect(result[0].distanceKm).toBe(4.2);
   });
 });

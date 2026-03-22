@@ -8,11 +8,13 @@ const {
   getAllListingsMock,
   getListingByIdMock,
   getListingsByOwnerMock,
+  getNearbyListingsMock,
 } = vi.hoisted(() => ({
   createListingMock: vi.fn(),
   getAllListingsMock: vi.fn(),
   getListingByIdMock: vi.fn(),
   getListingsByOwnerMock: vi.fn(),
+  getNearbyListingsMock: vi.fn(),
 }));
 
 vi.mock("../services/listingService", () => ({
@@ -20,6 +22,7 @@ vi.mock("../services/listingService", () => ({
   getAllListings: getAllListingsMock,
   getListingById: getListingByIdMock,
   getListingsByOwner: getListingsByOwnerMock,
+  getNearbyListings: getNearbyListingsMock,
 }));
 
 import app from "../app";
@@ -32,6 +35,8 @@ const sampleListing = {
   city: "Jaipur",
   description: "Ready for rally convoys.",
   pricePerDay: 4500,
+  latitude: 26.9124,
+  longitude: 75.7873,
   rallySuitability: [],
   imageUrls: ["/public/uploads/listings/thar.jpg"],
   status: "pending",
@@ -45,6 +50,7 @@ describe("listing routes", () => {
     getAllListingsMock.mockReset();
     getListingByIdMock.mockReset();
     getListingsByOwnerMock.mockReset();
+    getNearbyListingsMock.mockReset();
   });
 
   it("creates a listing with multipart images", async () => {
@@ -58,6 +64,8 @@ describe("listing routes", () => {
       .field("city", "Jaipur")
       .field("description", "Ready for rally convoys.")
       .field("pricePerDay", "4500")
+      .field("latitude", "26.9124")
+      .field("longitude", "75.7873")
       .attach("images", path.resolve(__dirname, "./fixtures/test-image.png"));
 
     expect(response.status).toBe(201);
@@ -81,5 +89,15 @@ describe("listing routes", () => {
 
     expect(response.status).toBe(200);
     expect(getListingsByOwnerMock).toHaveBeenCalledWith("firebase-1");
+  });
+
+  it("returns nearby listings", async () => {
+    getNearbyListingsMock.mockResolvedValue([{ ...sampleListing, distanceKm: 4.2 }]);
+
+    const response = await request(app).get("/api/listings/nearby?latitude=26.9&longitude=75.7&radiusKm=20");
+
+    expect(response.status).toBe(200);
+    expect(getNearbyListingsMock).toHaveBeenCalledWith("26.9", "75.7", "20");
+    expect(response.body.listings[0].distanceKm).toBe(4.2);
   });
 });
